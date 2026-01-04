@@ -47,6 +47,25 @@ export class Tessera extends DurableObject {
   }
 
   async fetch(request) {
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders() });
+    }
+
+    const response = await this.handleRequest(request);
+    // Add CORS headers to all responses
+    const headers = new Headers(response.headers);
+    for (const [key, value] of Object.entries(corsHeaders())) {
+      headers.set(key, value);
+    }
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  async handleRequest(request) {
     const url = new URL(request.url);
 
     if (url.pathname === '/') {
@@ -336,6 +355,14 @@ function toHex(bytes) {
   return Array.from(bytes)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+function corsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
 }
 
 /**
