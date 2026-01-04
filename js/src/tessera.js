@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { leafHash } from './crypto.js';
 
 /**
  * Tessera Durable Object
@@ -43,6 +44,12 @@ export class Tessera extends DurableObject {
       return Response.json({ size });
     }
 
+    if (url.pathname === '/hash/leaf' && request.method === 'POST') {
+      const data = new Uint8Array(await request.arrayBuffer());
+      const hash = await leafHash(data);
+      return Response.json({ hash: toHex(hash) });
+    }
+
     return new Response('Not Found', { status: 404 });
   }
 
@@ -52,4 +59,10 @@ export class Tessera extends DurableObject {
       .one();
     return row.size;
   }
+}
+
+function toHex(bytes) {
+  return Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }

@@ -7,13 +7,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "vitest --run",
-    "test:server": "node --test test/server.spec.js",
-    "test:all": "npm test && npm run test:server"
+    "test": "node --test test/server.spec.js"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.8.19",
-    "vitest": "~3.2.0",
     "wrangler": "^4.54.0"
   }
 }
