@@ -2,38 +2,58 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:8787';
+const PORT = 8787;
+const BASE_URL = `http://127.0.0.1:${PORT}`;
 let wranglerProcess;
 
-async function waitForServer(url, maxAttempts = 30) {
+async function waitForServer(maxAttempts = 60) {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      await fetch(url);
-      return true;
+      const res = await fetch(`${BASE_URL}/`);
+      if (res.status === 200) {
+        const text = await res.text();
+        if (text.includes('Tessera')) {
+          console.log(`Server ready after ${i + 1} attempts`);
+          return true;
+        }
+      }
     } catch {
-      await new Promise(r => setTimeout(r, 500));
+      // Server not ready yet
     }
+    await new Promise(r => setTimeout(r, 500));
   }
-  throw new Error('Server failed to start');
+  throw new Error('Server failed to start within 30 seconds');
 }
 
 describe('Tessera', () => {
   before(async () => {
-    wranglerProcess = spawn('npx', ['wrangler', 'dev'], {
-      stdio: 'pipe',
-      detached: false,
+    console.log('Starting wrangler dev...');
+
+    wranglerProcess = spawn('npx', ['wrangler', 'dev', '--port', String(PORT)], {
+      cwd: process.cwd(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env },
+    });
+
+    wranglerProcess.stdout.on('data', data => {
+      if (process.env.DEBUG) console.log('[stdout]', data.toString());
     });
 
     wranglerProcess.stderr.on('data', data => {
-      if (process.env.DEBUG) console.error(data.toString());
+      if (process.env.DEBUG) console.log('[stderr]', data.toString());
     });
 
-    await waitForServer(BASE_URL);
+    wranglerProcess.on('error', err => {
+      console.error('Failed to start wrangler:', err);
+    });
+
+    await waitForServer();
   });
 
   after(() => {
     if (wranglerProcess) {
-      wranglerProcess.kill();
+      console.log('Stopping wrangler...');
+      wranglerProcess.kill('SIGTERM');
     }
   });
 
@@ -73,7 +93,7 @@ describe('Tessera', () => {
       const json = await res.json();
 
       assert.strictEqual(res.status, 200);
-      assert.strictEqual(json.hash.length, 64); // hex string
+      assert.strictEqual(json.hash.length, 64);
     });
 
     test('leaf hash is consistent', async () => {
