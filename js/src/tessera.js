@@ -209,7 +209,10 @@ export class Tessera extends DurableObject {
     // Concatenate entry data with length prefixes
     const parts = [];
     for (const entry of entries) {
-      const data = entry.data;
+      // SQLite returns ArrayBuffer, convert to Uint8Array
+      const data = entry.data instanceof Uint8Array
+        ? entry.data
+        : new Uint8Array(entry.data);
       // 2-byte length prefix (big-endian)
       const lenBuf = new Uint8Array(2);
       lenBuf[0] = (data.length >> 8) & 0xff;
