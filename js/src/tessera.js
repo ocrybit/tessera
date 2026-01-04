@@ -339,12 +339,23 @@ export class Tessera extends DurableObject {
   }
 
   /**
-   * Loads the compact range from stored tiles for the given tree size
+   * Loads the compact range by rebuilding from all existing leaf hashes
    */
   async loadCompactRange(size) {
-    // For now, start with an empty range and rebuild
-    // TODO: Optimize by loading existing subtree hashes from tiles
-    return CompactRange.empty(0n);
+    const range = CompactRange.empty(0n);
+
+    // Rebuild by re-appending all existing leaf hashes
+    for (let i = 0; i < Number(size); i++) {
+      const entry = this.getEntry(i);
+      if (entry) {
+        const hash = entry.leaf_hash instanceof Uint8Array
+          ? entry.leaf_hash
+          : new Uint8Array(entry.leaf_hash);
+        await range.append(hash);
+      }
+    }
+
+    return range;
   }
 
   getTreeSize() {
