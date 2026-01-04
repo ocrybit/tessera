@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "vitest",
-    "test:server": "vitest --config vitest.server.config.js",
+    "test": "vitest --run",
+    "test:server": "node --test test/server.spec.js",
     "test:all": "npm test && npm run test:server"
   },
   "devDependencies": {

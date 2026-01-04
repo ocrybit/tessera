@@ -1,79 +1,62 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn } from 'child_process';
+import { test, describe, before, after } from 'node:test';
+import assert from 'node:assert';
+import { spawn } from 'node:child_process';
 
-const PORT = 8787;
-const BASE_URL = `http://localhost:${PORT}`;
-
+const BASE_URL = process.env.BASE_URL || 'http://localhost:8787';
 let wranglerProcess;
 
-beforeAll(async () => {
-  // Start wrangler dev server
-  wranglerProcess = spawn('npx', ['wrangler', 'dev', '--port', String(PORT)], {
-    cwd: process.cwd(),
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  // Wait for server to be ready
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error('Wrangler dev server failed to start within 30s'));
-    }, 30000);
-
-    wranglerProcess.stdout.on('data', (data) => {
-      const output = data.toString();
-      if (output.includes('Ready on')) {
-        clearTimeout(timeout);
-        resolve();
-      }
-    });
-
-    wranglerProcess.stderr.on('data', (data) => {
-      const output = data.toString();
-      // Wrangler outputs to stderr for some messages
-      if (output.includes('Ready on')) {
-        clearTimeout(timeout);
-        resolve();
-      }
-    });
-
-    wranglerProcess.on('error', (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-
-    wranglerProcess.on('exit', (code) => {
-      if (code !== 0 && code !== null) {
-        clearTimeout(timeout);
-        reject(new Error(`Wrangler exited with code ${code}`));
-      }
-    });
-  });
-}, 60000);
-
-afterAll(async () => {
-  if (wranglerProcess) {
-    wranglerProcess.kill('SIGTERM');
-    // Wait for process to exit
-    await new Promise((resolve) => {
-      wranglerProcess.on('exit', resolve);
-      setTimeout(resolve, 2000);
-    });
+async function waitForServer(url, maxAttempts = 30) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await fetch(url);
+      return true;
+    } catch {
+      await new Promise(r => setTimeout(r, 500));
+    }
   }
-});
+  throw new Error('Server failed to start');
+}
 
 describe('Tessera Server', () => {
-  it('should return hello message on root path', async () => {
-    const response = await fetch(`${BASE_URL}/`);
-    const text = await response.text();
+  before(async () => {
+    wranglerProcess = spawn('npx', ['wrangler', 'dev'], {
+      stdio: 'pipe',
+      detached: false,
+    });
 
-    expect(response.status).toBe(200);
-    expect(text).toBe('Hello from Tessera!');
+    wranglerProcess.stderr.on('data', data => {
+      if (process.env.DEBUG) console.error(data.toString());
+    });
+
+    await waitForServer(BASE_URL);
   });
 
-  it('should return 404 for unknown paths', async () => {
-    const response = await fetch(`${BASE_URL}/unknown`);
+  after(() => {
+    if (wranglerProcess) {
+      wranglerProcess.kill();
+    }
+  });
 
-    expect(response.status).toBe(404);
-    expect(await response.text()).toBe('Not Found');
+  test('returns hello on root path', async () => {
+    const res = await fetch(`${BASE_URL}/`);
+    const text = await res.text();
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(text, 'Hello from Tessera!');
+  });
+
+  test('returns 404 for unknown paths', async () => {
+    const res = await fetch(`${BASE_URL}/unknown`);
+
+    assert.strictEqual(res.status, 404);
+    assert.strictEqual(await res.text(), 'Not Found');
+  });
+
+  test('returns tree size', async () => {
+    const res = await fetch(`${BASE_URL}/size`);
+    const json = await res.json();
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(json.size, 0);
   });
 });
