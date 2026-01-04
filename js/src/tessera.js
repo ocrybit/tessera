@@ -9,6 +9,12 @@ export class Tessera {
   }
 
   async fetch(request) {
-    return new Response('Not implemented', { status: 501 });
+    const url = new URL(request.url);
+
+    if (url.pathname === '/') {
+      return new Response('Hello from Tessera!');
+    }
+
+    return new Response('Not Found', { status: 404 });
   }
 }
