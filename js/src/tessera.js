@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { leafHash } from './crypto.js';
+import { leafHash, nodeHash } from './crypto.js';
 import { CompactRange, tileVisitor, serializeTile } from './merkle.js';
 import { TILE_WIDTH, tilePath, entriesPath, partialTileSize } from './tiles.js';
 
@@ -243,7 +243,7 @@ export class Tessera extends DurableObject {
   /**
    * Handles GET /proof/{index} - returns inclusion proof for an entry
    */
-  handleProof(index) {
+  async handleProof(index) {
     const size = this.getTreeSize();
     if (index < 0 || index >= size) {
       return Response.json({ error: 'Index out of bounds' }, { status: 400 });
@@ -255,15 +255,15 @@ export class Tessera extends DurableObject {
     }
 
     // Compute the inclusion proof (audit path)
-    const proof = this.computeInclusionProof(index, size);
-    const leafHash = entry.leaf_hash instanceof Uint8Array
+    const proof = await this.computeInclusionProof(index, size);
+    const entryLeafHash = entry.leaf_hash instanceof Uint8Array
       ? entry.leaf_hash
       : new Uint8Array(entry.leaf_hash);
 
     return Response.json({
       index,
       size,
-      leafHash: toHex(leafHash),
+      leafHash: toHex(entryLeafHash),
       proof: proof.map(h => toHex(h)),
     });
   }
@@ -272,18 +272,59 @@ export class Tessera extends DurableObject {
    * Computes inclusion proof for a leaf at given index
    * Returns array of sibling hashes from leaf to root
    */
-  computeInclusionProof(index, size) {
+  async computeInclusionProof(index, size) {
+    // Build a hash cache for all nodes we need
+    const hashCache = new Map();
+
+    // First, get all leaf hashes
+    for (let i = 0; i < size; i++) {
+      const entry = this.getEntry(i);
+      if (entry) {
+        const hash = entry.leaf_hash instanceof Uint8Array
+          ? entry.leaf_hash
+          : new Uint8Array(entry.leaf_hash);
+        hashCache.set(`0:${i}`, hash);
+      }
+    }
+
+    // Build internal nodes level by level
+    let levelSize = size;
+    let level = 0;
+    while (levelSize > 1) {
+      const nextLevelSize = Math.ceil(levelSize / 2);
+      for (let i = 0; i < nextLevelSize; i++) {
+        const leftIdx = i * 2;
+        const rightIdx = i * 2 + 1;
+        const leftHash = hashCache.get(`${level}:${leftIdx}`);
+
+        if (rightIdx < levelSize) {
+          const rightHash = hashCache.get(`${level}:${rightIdx}`);
+          if (leftHash && rightHash) {
+            const parentHash = await nodeHash(leftHash, rightHash);
+            hashCache.set(`${level + 1}:${i}`, parentHash);
+          }
+        } else {
+          // Odd node, promote to next level
+          if (leftHash) {
+            hashCache.set(`${level + 1}:${i}`, leftHash);
+          }
+        }
+      }
+      levelSize = nextLevelSize;
+      level++;
+    }
+
+    // Now extract the proof (sibling hashes along the path)
     const proof = [];
     let idx = index;
-    let level = 0;
+    let proofLevel = 0;
     let remaining = size;
 
     while (remaining > 1) {
       const siblingIdx = idx ^ 1; // XOR to get sibling
 
-      // Only include sibling if it exists in the tree
       if (siblingIdx < remaining) {
-        const siblingHash = this.getNodeHash(level, siblingIdx);
+        const siblingHash = hashCache.get(`${proofLevel}:${siblingIdx}`);
         if (siblingHash) {
           proof.push(siblingHash);
         }
@@ -291,34 +332,10 @@ export class Tessera extends DurableObject {
 
       idx = Math.floor(idx / 2);
       remaining = Math.ceil(remaining / 2);
-      level++;
+      proofLevel++;
     }
 
     return proof;
-  }
-
-  /**
-   * Gets a node hash from stored tiles
-   */
-  getNodeHash(level, index) {
-    // For level 0, get from entries table
-    if (level === 0) {
-      const entry = this.getEntry(index);
-      if (!entry) return null;
-      const hash = entry.leaf_hash;
-      return hash instanceof Uint8Array ? hash : new Uint8Array(hash);
-    }
-
-    // For higher levels, compute from tile data
-    // Each tile stores 256 leaf hashes at level 0
-    // We need to recompute internal nodes from the tile
-    const tileIndex = Math.floor(index / 256);
-    const tileData = this.getTile(0, tileIndex);
-    if (!tileData) return null;
-
-    // For now, return null for non-leaf nodes (simplified)
-    // Full implementation would compute internal nodes from tile
-    return null;
   }
 
   /**
