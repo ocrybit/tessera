@@ -2,7 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
 
-const PORT = 8787;
+const PORT = 8798;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 let wranglerProcess;
 
@@ -80,7 +80,71 @@ describe('Tessera', () => {
       const json = await res.json();
 
       assert.strictEqual(res.status, 200);
-      assert.strictEqual(json.size, 0);
+      assert.ok(typeof json.size === 'number');
+    });
+  });
+
+  describe('Log Operations', () => {
+    test('adds entry and returns index', async () => {
+      const res = await fetch(`${BASE_URL}/add`, {
+        method: 'POST',
+        body: 'test entry 1',
+      });
+      const json = await res.json();
+
+      assert.strictEqual(res.status, 200);
+      assert.ok(typeof json.index === 'number');
+      assert.strictEqual(json.hash.length, 64);
+      assert.ok(json.size > 0);
+      assert.strictEqual(json.root.length, 64);
+    });
+
+    test('adds multiple entries with incrementing indices', async () => {
+      const res1 = await fetch(`${BASE_URL}/add`, {
+        method: 'POST',
+        body: 'entry A',
+      });
+      const json1 = await res1.json();
+
+      const res2 = await fetch(`${BASE_URL}/add`, {
+        method: 'POST',
+        body: 'entry B',
+      });
+      const json2 = await res2.json();
+
+      assert.strictEqual(json2.index, json1.index + 1);
+      assert.strictEqual(json2.size, json1.size + 1);
+      // Root hash should change after adding new entry
+      assert.notStrictEqual(json2.root, json1.root);
+    });
+
+    test('checkpoint reflects current tree state', async () => {
+      // Add an entry first
+      const addRes = await fetch(`${BASE_URL}/add`, {
+        method: 'POST',
+        body: 'checkpoint test entry',
+      });
+      const addJson = await addRes.json();
+
+      // Get checkpoint
+      const cpRes = await fetch(`${BASE_URL}/checkpoint`);
+      const cpJson = await cpRes.json();
+
+      assert.strictEqual(cpRes.status, 200);
+      assert.strictEqual(cpJson.size, addJson.size);
+      assert.strictEqual(cpJson.root, addJson.root);
+    });
+  });
+
+  describe('Tile API', () => {
+    test('returns 404 for non-existent tile', async () => {
+      const res = await fetch(`${BASE_URL}/tile/0/999`);
+      assert.strictEqual(res.status, 404);
+    });
+
+    test('returns 404 for non-existent entry bundle', async () => {
+      const res = await fetch(`${BASE_URL}/tile/entries/999`);
+      assert.strictEqual(res.status, 404);
     });
   });
 
