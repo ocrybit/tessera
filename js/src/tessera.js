@@ -1,11 +1,12 @@
 /**
  * Tessera Durable Object
- * Handles transparency log operations
+ * Handles transparency log operations with SQLite storage
  */
 export class Tessera {
   constructor(state, env) {
     this.state = state;
     this.env = env;
+    this.sql = state.storage.sql;
   }
 
   async fetch(request) {
